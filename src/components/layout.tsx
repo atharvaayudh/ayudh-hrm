@@ -26,14 +26,14 @@ export function Layout({ children }: LayoutProps) {
 
   return (
     <SidebarProvider>
-      <div className="min-h-screen flex w-full bg-background">
+      <div className="min-h-screen w-full bg-background flex">
         <AppSidebar />
-        <div className="flex-1 flex flex-col">
-          <header className="h-14 flex items-center border-b bg-card px-4 lg:px-6">
+        <div id="main-content" className="flex-1 flex flex-col transition-all duration-300 min-w-0">
+          <header className="h-16 flex items-center border-b bg-card px-4 lg:px-6">
             <SidebarTrigger className="mr-4" />
             <div className="flex-1">
-              <h1 className="text-lg font-semibold text-foreground">
-                Human Resource Management System
+              <h1 className="text-lg font-bold text-foreground">
+                People
               </h1>
             </div>
           </header>

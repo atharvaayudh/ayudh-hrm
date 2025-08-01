@@ -77,7 +77,7 @@ const Auth = () => {
             </div>
           </div>
           <CardTitle className="text-2xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
-            HRM Portal
+            PEOPLE
           </CardTitle>
           <CardDescription>
             Sign in to your account or create a new one

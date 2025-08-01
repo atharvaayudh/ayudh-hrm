@@ -15,6 +15,7 @@ import Payroll from "./pages/Payroll";
 import Performance from "./pages/Performance";
 import Reports from "./pages/Reports";
 import PlaceholderPage from "./pages/PlaceholderPage";
+import AddEmployeePage from "./pages/AddEmployeePage";
 
 const queryClient = new QueryClient();
 
@@ -29,7 +30,7 @@ const App = () => (
             <Route path="/auth" element={<Auth />} />
             <Route path="/" element={<Layout><Index /></Layout>} />
             <Route path="/employees" element={<Layout><Employees /></Layout>} />
-            <Route path="/employees/add" element={<Layout><PlaceholderPage title="Add Employee" description="Add new team members to your organization" /></Layout>} />
+            <Route path="/employees/add" element={<Layout><AddEmployeePage /></Layout>} />
             <Route path="/departments" element={<Layout><Departments /></Layout>} />
             <Route path="/designations" element={<Layout><PlaceholderPage title="Designations" description="Manage job titles and positions" /></Layout>} />
             <Route path="/attendance" element={<Layout><Attendance /></Layout>} />
