@@ -7,8 +7,32 @@ import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '@
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { supabase } from '@/integrations/supabase/client';
 import { Plus, Users, Building } from 'lucide-react';
+import { toast } from 'sonner';
 
-function DepartmentCard({ dept, onView, onEdit }: any) {
+interface Department {
+  id: string;
+  name: string;
+  description?: string;
+  head_user_id?: string;
+  head_name?: string;
+  head_image?: string;
+  head_employee_id?: string;
+  employee_count: number;
+  growth: number;
+}
+
+interface Employee {
+  id: string;
+  name: string;
+  image?: string;
+  employee_id: string;
+}
+
+function DepartmentCard({ dept, onView, onEdit }: { 
+  dept: Department; 
+  onView: (dept: Department) => void; 
+  onEdit: (dept: Department) => void 
+}) {
   return (
     <Card className="p-6 flex flex-col gap-4 shadow-md border border-orange-200 bg-[#fff8f3] hover:shadow-lg transition-shadow">
       <div className="flex justify-between items-center">
@@ -17,12 +41,11 @@ function DepartmentCard({ dept, onView, onEdit }: any) {
       </div>
       <div className="text-sm text-gray-600 mb-2">{dept.description || 'No description available'}</div>
       
-      {/* Department Head Section */}
       <div className="flex items-center gap-3 p-3 bg-white rounded-lg border border-orange-100">
         <Avatar className="h-12 w-12 border-2 border-orange-200">
           <AvatarImage src={dept.head_image} alt={dept.head_name} />
           <AvatarFallback className="bg-orange-100 text-orange-700">
-            {dept.head_name ? dept.head_name.split(' ').map((n: string) => n[0]).join('').toUpperCase() : 'NA'}
+            {dept.head_name ? dept.head_name.split(' ').map(n => n[0]).join('').toUpperCase() : 'NA'}
           </AvatarFallback>
         </Avatar>
         <div className="flex-1">
@@ -63,12 +86,11 @@ function DepartmentCard({ dept, onView, onEdit }: any) {
 
 export default function DepartmentsPage() {
   const navigate = useNavigate();
-  const [departments, setDepartments] = useState<any[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState<any>({});
-  const [employees, setEmployees] = useState<any[]>([]);
-  const [selectedDept, setSelectedDept] = useState<any | null>(null);
-  const [manageDept, setManageDept] = useState<any | null>(null);
+  const [form, setForm] = useState<Partial<Department>>({});
+  const [manageDept, setManageDept] = useState<Department | null>(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -86,7 +108,7 @@ export default function DepartmentsPage() {
       if (empError) throw empError;
       setEmployees(emps || []);
 
-      // Fetch departments with head information using a join
+      // Fetch departments with head information
       const { data: depts, error: deptError } = await supabase
         .from('departments')
         .select(`
@@ -100,19 +122,16 @@ export default function DepartmentsPage() {
       if (deptError) throw deptError;
 
       // Fetch employee counts per department
-      let empCounts: Record<string, number> = {};
-      if (depts && depts.length > 0) {
-        const deptIds = depts.map((d: any) => d.id);
-        const { data: empData, error: countError } = await supabase
-          .from('employee_master')
-          .select('department_id');
-        
-        if (countError) throw countError;
-        
-        (empData || []).forEach((e: any) => {
-          if (e.department_id) empCounts[e.department_id] = (empCounts[e.department_id] || 0) + 1;
-        });
-      }
+      const { data: empData, error: countError } = await supabase
+        .from('employee_master')
+        .select('department_id');
+      
+      if (countError) throw countError;
+
+      const empCounts = (empData || []).reduce((acc: Record<string, number>, e: any) => {
+        if (e.department_id) acc[e.department_id] = (acc[e.department_id] || 0) + 1;
+        return acc;
+      }, {});
 
       const departmentsWithStats = (depts || []).map((d: any) => ({
         ...d,
@@ -125,30 +144,37 @@ export default function DepartmentsPage() {
 
       setDepartments(departmentsWithStats);
     } catch (error) {
-      console.error('Error fetching data:', error);
+      toast.error('Error fetching data');
+      console.error('Error:', error);
     } finally {
       setLoading(false);
     }
   }
 
   async function handleAdd() {
-    if (!form.name) return;
+    if (!form.name) {
+      toast.error('Department name is required');
+      return;
+    }
+    
     setLoading(true);
     
     try {
       const { error } = await supabase.from('departments').insert({
         name: form.name,
         description: form.description,
-        head_user_id: form.department_head_id
+        head_user_id: form.head_user_id || null
       });
       
       if (error) throw error;
       
+      toast.success('Department created successfully');
       setShowForm(false);
       setForm({});
-      await fetchData(); // Refresh the data
+      await fetchData();
     } catch (error) {
-      console.error('Error adding department:', error);
+      toast.error('Failed to create department');
+      console.error('Error:', error);
     } finally {
       setLoading(false);
     }
@@ -156,29 +182,45 @@ export default function DepartmentsPage() {
 
   async function handleManageSave() {
     if (!manageDept) return;
+    
     setLoading(true);
     
     try {
+      // Verify the employee exists if head_user_id is set
+      if (manageDept.head_user_id) {
+        const { data: employee, error } = await supabase
+          .from('employee_master')
+          .select('id')
+          .eq('id', manageDept.head_user_id)
+          .single();
+        
+        if (error || !employee) {
+          throw new Error('Selected department head not found');
+        }
+      }
+
       const { error } = await supabase.from('departments')
         .update({
           name: manageDept.name,
           description: manageDept.description,
-          head_user_id: manageDept.head_user_id
+          head_user_id: manageDept.head_user_id || null
         })
         .eq('id', manageDept.id);
       
       if (error) throw error;
       
+      toast.success('Department updated successfully');
       setManageDept(null);
-      await fetchData(); // Refresh the data
-    } catch (error) {
-      console.error('Error updating department:', error);
+      await fetchData();
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to update department');
+      console.error('Error:', error);
     } finally {
       setLoading(false);
     }
   }
 
-  const handleViewDepartment = (dept: any) => {
+  const handleViewDepartment = (dept: Department) => {
     navigate(`/departments/${dept.id}`);
   };
 
@@ -221,7 +263,7 @@ export default function DepartmentsPage() {
             <div>
               <div className="text-xs text-gray-500 mb-1">Total Employees</div>
               <div className="text-3xl font-bold">
-                {departments.reduce((a, d) => a + (d.employee_count || 0), 0)}
+                {departments.reduce((a, d) => a + d.employee_count, 0)}
               </div>
             </div>
           </div>
@@ -234,7 +276,7 @@ export default function DepartmentsPage() {
             <div>
               <div className="text-xs text-gray-500 mb-1">Average Growth</div>
               <div className="text-3xl font-bold">
-                +{departments.length ? (departments.reduce((a, d) => a + (d.growth || 0), 0) / departments.length).toFixed(1) : 0}%
+                +{departments.length ? (departments.reduce((a, d) => a + d.growth, 0) / departments.length).toFixed(1) : 0}%
               </div>
             </div>
           </div>
@@ -247,8 +289,8 @@ export default function DepartmentsPage() {
           <DepartmentCard 
             key={dept.id} 
             dept={dept} 
-            onView={() => handleViewDepartment(dept)} 
-            onEdit={d => setManageDept(d)} 
+            onView={handleViewDepartment} 
+            onEdit={setManageDept} 
           />
         ))}
       </div>
@@ -271,20 +313,21 @@ export default function DepartmentsPage() {
               onChange={e => setForm({ ...form, description: e.target.value })} 
             />
             <Select 
-              value={form.department_head_id || ''} 
-              onValueChange={val => setForm({ ...form, department_head_id: val })}
+              value={form.head_user_id || ''} 
+              onValueChange={val => setForm({ ...form, head_user_id: val })}
             >
               <SelectTrigger>
                 <SelectValue placeholder="Select Department Head" />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="">Not assigned</SelectItem>
                 {employees.map(emp => (
                   <SelectItem key={emp.id} value={emp.id}>
                     <div className="flex items-center gap-2">
                       <Avatar className="w-6 h-6">
                         <AvatarImage src={emp.image} alt={emp.name} />
                         <AvatarFallback className="text-xs">
-                          {emp.name ? emp.name.split(' ').map((n: string) => n[0]).join('').toUpperCase() : 'NA'}
+                          {emp.name.split(' ').map(n => n[0]).join('').toUpperCase()}
                         </AvatarFallback>
                       </Avatar>
                       <span>{emp.name} ({emp.employee_id})</span>
@@ -317,7 +360,7 @@ export default function DepartmentsPage() {
             <Input 
               className="mb-3" 
               placeholder="Department Name" 
-              value={manageDept.name || ''} 
+              value={manageDept.name} 
               onChange={e => setManageDept({ ...manageDept, name: e.target.value })} 
             />
             <Input 
@@ -334,13 +377,14 @@ export default function DepartmentsPage() {
                 <SelectValue placeholder="Select Department Head" />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="">Not assigned</SelectItem>
                 {employees.map(emp => (
                   <SelectItem key={emp.id} value={emp.id}>
                     <div className="flex items-center gap-2">
                       <Avatar className="w-6 h-6">
                         <AvatarImage src={emp.image} alt={emp.name} />
                         <AvatarFallback className="text-xs">
-                          {emp.name ? emp.name.split(' ').map((n: string) => n[0]).join('').toUpperCase() : 'NA'}
+                          {emp.name.split(' ').map(n => n[0]).join('').toUpperCase()}
                         </AvatarFallback>
                       </Avatar>
                       <span>{emp.name} ({emp.employee_id})</span>
