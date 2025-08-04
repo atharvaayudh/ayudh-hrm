@@ -9,43 +9,65 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Input } from '@/components/ui/input';
 import { Search, Plus, Filter } from 'lucide-react';
 
+interface Employee {
+  employee_id: string;
+  name: string;
+  mobile_number: string;
+  designation: string;
+  department: string;
+  image?: string;
+  reporting_manager_id?: string;
+  reporting_manager_name?: string;
+  reporting_manager_image?: string;
+}
+
 export default function Employees() {
   const [searchTerm, setSearchTerm] = useState('');
-  const [employees, setEmployees] = useState<any[]>([]);
-  const columns = [
-    { key: 'image', label: 'Image' },
-    { key: 'employee_id', label: 'Emp ID' },
-    { key: 'name', label: 'Name' },
-    { key: 'mobile_number', label: 'Mobile' },
-    { key: 'designation', label: 'Designation' },
-    { key: 'department', label: 'Department' },
-    { key: 'reporting_manager', label: 'Reporting Manager' }
-  ];
+  const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
   useEffect(() => {
     async function fetchEmployees() {
       try {
-        const { data: emps, error } = await supabase.from('employee_master').select('*');
+        // First fetch all employees to build complete manager data
+        const { data: allEmployees, error: allError } = await supabase
+          .from('employee_master')
+          .select('employee_id, name, image');
+        
+        if (allError) throw allError;
+
+        const managerMap = new Map(
+          allEmployees.map(emp => [emp.employee_id, emp])
+        );
+
+        // Then fetch current employees with their full details
+        const { data: emps, error } = await supabase
+          .from('employee_master')
+          .select(`
+            *,
+            designations(name),
+            departments(name)
+          `);
+        
         if (error) throw error;
 
-        const { data: designations } = await supabase.from('designations').select('*');
-        const { data: departments } = await supabase.from('departments').select('*');
-        
-        const employeeMap = emps.reduce((acc, emp) => {
-          acc[emp.employee_id] = emp;
-          return acc;
-        }, {} as Record<string, any>);
-        
-        const enriched = emps.map(emp => ({
-          ...emp,
-          designation: designations?.find(d => d.id === emp.designation_id)?.name || '',
-          department: departments?.find(d => d.id === emp.department_id)?.name || '',
-          reporting_manager: employeeMap[emp.reporting_manager_id]?.name || 'Not assigned',
-          reporting_manager_image: employeeMap[emp.reporting_manager_id]?.image || null
-        }));
-        
+        const enriched = emps.map(emp => {
+          const manager = emp.reporting_manager_id ? managerMap.get(emp.reporting_manager_id) : null;
+          
+          return {
+            employee_id: emp.employee_id,
+            name: emp.name,
+            mobile_number: emp.mobile_number,
+            designation: emp.designations?.name || '',
+            department: emp.departments?.name || '',
+            image: emp.image,
+            reporting_manager_id: emp.reporting_manager_id,
+            reporting_manager_name: manager?.name || 'Not assigned',
+            reporting_manager_image: manager?.image || null
+          };
+        });
+
         setEmployees(enriched);
       } catch (error) {
         console.error('Error fetching employees:', error);
@@ -57,10 +79,18 @@ export default function Employees() {
   }, []);
 
   const filteredEmployees = employees.filter(employee => {
-    return columns.some(col => {
-      const val = employee[col.key];
-      return typeof val === 'string' && val.toLowerCase().includes(searchTerm.toLowerCase());
-    });
+    const searchFields = [
+      employee.employee_id,
+      employee.name,
+      employee.mobile_number,
+      employee.designation,
+      employee.department,
+      employee.reporting_manager_name
+    ];
+    
+    return searchFields.some(field => 
+      field?.toString().toLowerCase().includes(searchTerm.toLowerCase())
+    );
   });
 
   const handleRowClick = (employeeId: string) => {
@@ -146,22 +176,34 @@ export default function Employees() {
                   <TableCell>{employee.designation}</TableCell>
                   <TableCell>{employee.department}</TableCell>
                   <TableCell>
-                    <div className="flex items-center gap-3">
-                      {employee.reporting_manager_image ? (
-                        <img 
-                          src={employee.reporting_manager_image} 
-                          alt={employee.reporting_manager} 
-                          className="w-14 h-14 rounded-full object-cover border-2 border-gray-200" 
-                        />
-                      ) : employee.reporting_manager !== 'Not assigned' ? (
-                        <Avatar className="w-14 h-14 border-2 border-gray-200">
-                          <AvatarFallback className="text-xl">
-                            {employee.reporting_manager?.[0]?.toUpperCase() || '?'}
-                          </AvatarFallback>
-                        </Avatar>
-                      ) : null}
-                      <span className="font-medium">{employee.reporting_manager}</span>
-                    </div>
+                    {employee.reporting_manager_id ? (
+                      <div 
+                        className="flex items-center gap-3 hover:underline"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (employee.reporting_manager_id) {
+                            navigate(`/employees/view/${employee.reporting_manager_id}`);
+                          }
+                        }}
+                      >
+                        {employee.reporting_manager_image ? (
+                          <img 
+                            src={employee.reporting_manager_image} 
+                            alt={employee.reporting_manager_name} 
+                            className="w-14 h-14 rounded-full object-cover border-2 border-gray-200" 
+                          />
+                        ) : (
+                          <Avatar className="w-14 h-14 border-2 border-gray-200">
+                            <AvatarFallback className="text-xl">
+                              {employee.reporting_manager_name?.[0]?.toUpperCase() || 'M'}
+                            </AvatarFallback>
+                          </Avatar>
+                        )}
+                        <span className="font-medium">{employee.reporting_manager_name}</span>
+                      </div>
+                    ) : (
+                      <span className="text-muted-foreground">Not assigned</span>
+                    )}
                   </TableCell>
                   <TableCell className="text-right">
                     <Button 
@@ -170,7 +212,7 @@ export default function Employees() {
                       onClick={async (e) => {
                         e.stopPropagation();
                         await supabase.from('employee_master').delete().eq('employee_id', employee.employee_id);
-                        setEmployees(emps => emps.filter(emp => emp.employee_id !== employee.employee_id));
+                        setEmployees(prev => prev.filter(emp => emp.employee_id !== employee.employee_id));
                       }}
                     >
                       Delete
